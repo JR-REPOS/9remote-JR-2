@@ -253,7 +253,20 @@ export default function ChatBox({ sessionId, terminalOutput, cwd, onRunCommand, 
 
   return (
     <div className="chat-section">
-      <div className="chat-section-header" onClick={() => setCollapsed(!collapsed)}>
+      <div
+        className="chat-section-header"
+        role="button"
+        tabIndex={0}
+        aria-expanded={!collapsed}
+        aria-controls="chat-section-body"
+        onClick={() => setCollapsed((value) => !value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setCollapsed((value) => !value);
+          }
+        }}
+      >
         <div className="chat-section-title">
           <Bot size={16} style={{ color: "var(--brand-500)" }} />
           AI Assistant
@@ -364,12 +377,12 @@ export default function ChatBox({ sessionId, terminalOutput, cwd, onRunCommand, 
               </div>
             )}
           </div>
-          {collapsed ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          {collapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
         </div>
       </div>
 
       {!collapsed && (
-        <div className="chat-section-body">
+        <div id="chat-section-body" className="chat-section-body">
           <div className="chat-messages">
             {messages.length === 0 && !loading && (
               <div className="chat-empty">
