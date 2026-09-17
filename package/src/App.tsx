@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
+import type { MouseEvent } from "react";
 import { Plus, X, Terminal as TerminalIcon, Moon, Sun, Wifi, WifiOff, Play, Bot, Sparkles, Command, Settings as SettingsIcon, CheckCircle2 } from "lucide-react";
 import TerminalView from "./components/Terminal";
 import ChatBox from "./components/ChatBox";
@@ -114,7 +115,7 @@ export default function App() {
     }
   }, [connected, hasInitialized, sessions.length, createSession]);
 
-  const closeSession = useCallback((sessionId: string, e: React.MouseEvent) => {
+  const closeSession = useCallback((sessionId: string, e: MouseEvent) => {
     e.stopPropagation();
     const socket = getSocket();
     socket.emit("deleteSession", { sessionId });
