@@ -35,7 +35,7 @@ var __filename = (0, import_node_url.fileURLToPath)(import_meta.url);
 var __dirname = import_node_path.default.dirname(__filename);
 var app = (0, import_express.default)();
 var server = import_node_http.default.createServer(app);
-var PORT = 3e3;
+var PORT = Number(process.env.PORT) || 5173;
 app.use(import_express.default.json());
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", port: PORT });
