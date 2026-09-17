@@ -118,14 +118,18 @@ export default function ChatBox({ sessionId, terminalOutput, cwd, onRunCommand, 
   }, [input]);
 
   const loadHistory = useCallback(async () => {
-    const { data } = await supabase
-      .from("chat_messages")
-      .select("*")
-      .eq("session_id", sessionId)
-      .order("created_at", { ascending: true })
-      .limit(50);
-    if (data && data.length > 0) {
-      setMessages(data as ChatMessage[]);
+    try {
+      const { data } = await supabase
+        .from("chat_messages")
+        .select("*")
+        .eq("session_id", sessionId)
+        .order("created_at", { ascending: true })
+        .limit(50);
+      if (data && data.length > 0) {
+        setMessages(data as ChatMessage[]);
+      }
+    } catch {
+      setMessages([]);
     }
   }, [sessionId]);
 
@@ -173,13 +177,15 @@ export default function ChatBox({ sessionId, terminalOutput, cwd, onRunCommand, 
     setInput("");
     setLoading(true);
 
-    await supabase.from("chat_messages").insert({
-      session_id: sessionId,
-      role: "user",
-      model: modelNameToRecord,
-      content: trimmed,
-      terminal_context: context,
-    });
+    try {
+      await supabase.from("chat_messages").insert({
+        session_id: sessionId,
+        role: "user",
+        model: modelNameToRecord,
+        content: trimmed,
+        terminal_context: context,
+      });
+    } catch {}
 
     await sendChatMessage(
       trimmed,
@@ -201,12 +207,14 @@ export default function ChatBox({ sessionId, terminalOutput, cwd, onRunCommand, 
           setMessages((prev) => [...prev, aiMsg]);
           setLoading(false);
 
-          await supabase.from("chat_messages").insert({
-            session_id: sessionId,
-            role: "assistant",
-            model: modelNameToRecord,
-            content: fullText,
-          });
+          try {
+            await supabase.from("chat_messages").insert({
+              session_id: sessionId,
+              role: "assistant",
+              model: modelNameToRecord,
+              content: fullText,
+            });
+          } catch {}
         },
         onError: (error) => {
           const errMsg: ChatMessage = {
@@ -235,10 +243,12 @@ export default function ChatBox({ sessionId, terminalOutput, cwd, onRunCommand, 
 
   const handleRunCommand = async (command: string, messageId: string) => {
     onRunCommand(command);
-    await supabase
-      .from("chat_messages")
-      .update({ command_executed: command })
-      .eq("id", messageId);
+    try {
+      await supabase
+        .from("chat_messages")
+        .update({ command_executed: command })
+        .eq("id", messageId);
+    } catch {}
   };
 
   return (

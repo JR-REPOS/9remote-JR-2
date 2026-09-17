@@ -1,7 +1,15 @@
 import { ChatMessage, CustomAIProvider } from "../types";
 
-const EDGE_FUNCTION_URL = import.meta.env.VITE_SUPABASE_URL
-  ? `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const hasSupabaseConfig = Boolean(
+  supabaseUrl &&
+  supabaseAnonKey &&
+  /^https:\/\/[^/]+$/.test(supabaseUrl) &&
+  !supabaseUrl.includes("placeholder")
+);
+const EDGE_FUNCTION_URL = hasSupabaseConfig
+  ? `${supabaseUrl}/functions/v1/ai-chat`
   : "/api/chat";
 
 interface StreamCallbacks {

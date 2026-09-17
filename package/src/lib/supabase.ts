@@ -6,7 +6,8 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const isConfigured = Boolean(
   supabaseUrl &&
   supabaseAnonKey &&
-  supabaseUrl.startsWith("http")
+  /^https:\/\/[^/]+$/.test(supabaseUrl) &&
+  !supabaseUrl.includes("placeholder")
 );
 
 // Fallback in-memory & localStorage mock for chat messages when Supabase is not configured
