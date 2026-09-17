@@ -1,0 +1,14 @@
+{
+  "name": "9remote-project",
+  "version": "3.0.0",
+  "private": true,
+  "workspaces": [
+    "package"
+  ],
+  "scripts": {
+    "install:pkg": "cd package && npm install --legacy-peer-deps",
+    "build:ui": "cd package && npx vite build",
+    "start": "cd package && npm start",
+    "dev": "cd package && npm run dev"
+  }
+}
