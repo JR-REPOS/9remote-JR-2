@@ -1,0 +1,6 @@
+{
+  "name": "9Remote",
+  "description": "Terminal and AI workspace for remote development and command execution",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

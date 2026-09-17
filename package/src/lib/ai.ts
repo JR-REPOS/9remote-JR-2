@@ -1,6 +1,16 @@
-import { ChatMessage } from "../types";
+import { ChatMessage, CustomAIProvider } from "../types";
 
-const EDGE_FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`;
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const hasSupabaseConfig = Boolean(
+  supabaseUrl &&
+  supabaseAnonKey &&
+  /^https:\/\/[^/]+$/.test(supabaseUrl) &&
+  !supabaseUrl.includes("placeholder")
+);
+const EDGE_FUNCTION_URL = hasSupabaseConfig
+  ? `${supabaseUrl}/functions/v1/ai-chat`
+  : "/api/chat";
 
 interface StreamCallbacks {
   onToken: (token: string) => void;
@@ -13,17 +23,22 @@ export async function sendChatMessage(
   model: string,
   terminalContext: string | null,
   history: ChatMessage[],
-  callbacks: StreamCallbacks
+  callbacks: StreamCallbacks,
+  customProvider?: CustomAIProvider | null
 ): Promise<void> {
   const apiKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
   try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (apiKey) {
+      headers["Authorization"] = `Bearer ${apiKey}`;
+    }
+
     const response = await fetch(EDGE_FUNCTION_URL, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
+      headers,
       body: JSON.stringify({
         message,
         model,
@@ -32,6 +47,14 @@ export async function sendChatMessage(
           role: m.role,
           content: m.content,
         })),
+        custom_provider: customProvider
+          ? {
+              name: customProvider.name,
+              baseUrl: customProvider.baseUrl,
+              apiKey: customProvider.apiKey,
+              modelId: customProvider.modelId,
+            }
+          : undefined,
       }),
     });
 

@@ -1,14 +1,15 @@
 {
-  "name": "9remote-project",
+  "name": "9remote",
   "version": "3.0.0",
   "private": true,
+  "type": "module",
   "workspaces": [
     "package"
   ],
   "scripts": {
-    "install:pkg": "cd package && npm install --legacy-peer-deps",
-    "build:ui": "cd package && npx vite build",
-    "start": "cd package && npm start",
-    "dev": "cd package && npm run dev"
+    "dev": "npm run dev --workspace=package",
+    "build": "npm run build --workspace=package && rm -rf dist && cp -r package/dist dist",
+    "lint": "npm run lint --workspace=package",
+    "start": "node dist/server.cjs"
   }
 }
