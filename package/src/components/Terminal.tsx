@@ -34,13 +34,55 @@ export default function TerminalView({ sessionId, onOutput, onCwdChange }: Termi
     });
 
     const fit = new FitAddon();
+
+    // Guard proposeDimensions and fit against unready or unmounted renderService
+    const origProposeDimensions = fit.proposeDimensions.bind(fit);
+    fit.proposeDimensions = () => {
+      try {
+        const container = containerRef.current;
+        if (!container || container.clientWidth <= 0 || container.clientHeight <= 0) {
+          return undefined;
+        }
+        const core = (term as unknown as { _core?: { _renderService?: { dimensions?: { css?: { cell?: { width?: number; height?: number } } } } } })._core;
+        if (!core?._renderService?.dimensions?.css?.cell?.width || !core?._renderService?.dimensions?.css?.cell?.height) {
+          return undefined;
+        }
+        return origProposeDimensions();
+      } catch {
+        return undefined;
+      }
+    };
+
+    const origFit = fit.fit.bind(fit);
+    fit.fit = () => {
+      try {
+        const container = containerRef.current;
+        if (!container || container.clientWidth <= 0 || container.clientHeight <= 0) {
+          return;
+        }
+        const core = (term as unknown as { _core?: { _renderService?: { dimensions?: unknown } } })._core;
+        if (!core?._renderService?.dimensions) {
+          return;
+        }
+        origFit();
+      } catch {
+        // Suppress fit errors during transitions or before render engine is ready
+      }
+    };
+
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon());
     term.open(containerRef.current);
-    fit.fit();
 
     termRef.current = term;
     fitRef.current = fit;
+
+    // Deferred fit once layout and fonts are rendered
+    requestAnimationFrame(() => {
+      if (fitRef.current && containerRef.current) {
+        fitRef.current.fit();
+      }
+    });
 
     const socket = getSocket();
 
@@ -77,31 +119,45 @@ export default function TerminalView({ sessionId, onOutput, onCwdChange }: Termi
       socket.emit("resize", { sessionId, cols, rows });
     });
 
-    const resizeObserver = new ResizeObserver(() => {
-      if (fitRef.current) {
-        fitRef.current.fit();
+    let resizeRafId: number | null = null;
+    const resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry?.contentRect && (entry.contentRect.width <= 0 || entry.contentRect.height <= 0)) {
+        return;
       }
+      if (resizeRafId) cancelAnimationFrame(resizeRafId);
+      resizeRafId = requestAnimationFrame(() => {
+        if (fitRef.current && termRef.current && containerRef.current) {
+          fitRef.current.fit();
+        }
+      });
     });
     resizeObserver.observe(containerRef.current);
 
     return () => {
+      if (resizeRafId) cancelAnimationFrame(resizeRafId);
       socket.off("output", handleData);
       socket.off("cwdChange", handleCwdChange);
       socket.off("sessionClosed", handleSessionClosed);
       resizeObserver.disconnect();
-      term.dispose();
+      fitRef.current = null;
       termRef.current = null;
+      try {
+        term.dispose();
+      } catch {
+        // Ignore dispose errors
+      }
     };
   }, [sessionId, onOutput, onCwdChange]);
 
   const fit = useCallback(() => {
-    if (fitRef.current && containerRef.current) {
+    if (fitRef.current && containerRef.current && termRef.current) {
       fitRef.current.fit();
     }
   }, []);
 
   useEffect(() => {
-    const timer = setTimeout(fit, 50);
+    const timer = setTimeout(fit, 100);
     return () => clearTimeout(timer);
   }, [fit]);
 

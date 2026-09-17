@@ -24,6 +24,23 @@ export interface AIModel {
   description: string;
 }
 
+export interface CustomAIProvider {
+  id: string;
+  name: string;
+  baseUrl: string;
+  apiKey: string;
+  modelId: string;
+  createdAt?: string;
+  updatedAt?: string;
+  lastValidation?: {
+    ok: boolean;
+    timestamp?: number;
+    latency?: number;
+    message?: string;
+    error?: string;
+  };
+}
+
 export const AI_MODELS: AIModel[] = [
   { id: "claude", label: "Claude", icon: "claude", description: "Anthropic Claude" },
   { id: "gemini", label: "Gemini", icon: "gemini", description: "Google Gemini" },

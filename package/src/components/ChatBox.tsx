@@ -1,17 +1,74 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Terminal, Sparkles, ChevronDown, ChevronUp, Eye, Play, Bot } from "lucide-react";
-import { ChatMessage, AI_MODELS } from "../types";
+import { Send, Terminal, Sparkles, ChevronDown, ChevronUp, Eye, Play, Bot, ArrowRight, CornerDownLeft, Cpu, Sliders } from "lucide-react";
+import { ChatMessage, AI_MODELS, CustomAIProvider } from "../types";
 import { sendChatMessage, extractCodeBlocks } from "../lib/ai";
 import { supabase } from "../lib/supabase";
+import {
+  getCustomProviders,
+  getActiveCustomProviderId,
+  setActiveCustomProviderId,
+  getSelectedDefaultModel,
+  setSelectedDefaultModel,
+} from "../lib/providers";
 
 interface ChatBoxProps {
   sessionId: string;
   terminalOutput: string;
   cwd: string;
   onRunCommand: (command: string) => void;
+  onOpenSettings?: () => void;
 }
 
-export default function ChatBox({ sessionId, terminalOutput, cwd, onRunCommand }: ChatBoxProps) {
+const PLACEHOLDER_CYCLE = [
+  "Ask AI: 'Check CPU, memory & disk usage'...",
+  "Ask AI: 'Find all .log files modified today'...",
+  "Ask AI: 'Show git branch status & commit history'...",
+  "Ask AI: 'Explain the error in my terminal output'...",
+  "Ask AI: 'List active listening ports & sockets'...",
+  "Ask AI: 'Help me write a shell script to automate this'...",
+  "Ask AI: 'How do I monitor processes in real-time?'...",
+];
+
+const SUGGESTED_PLACEHOLDERS = [
+  {
+    icon: "⚡",
+    label: "System Resources",
+    description: "Uptime, memory & disk usage",
+    prompt: "Check system uptime, memory usage, and available disk space",
+  },
+  {
+    icon: "📂",
+    label: "Find Large Files",
+    description: "Inspect top 10 largest files",
+    prompt: "Find the 10 largest files in the current directory and display their sizes",
+  },
+  {
+    icon: "🌿",
+    label: "Git Status",
+    description: "Branch status & recent commits",
+    prompt: "Show git status, branch details, and the last 3 commits",
+  },
+  {
+    icon: "🌐",
+    label: "Network Ports",
+    description: "Active ports & listening services",
+    prompt: "Check which ports and network services are currently listening",
+  },
+  {
+    icon: "🔍",
+    label: "Explain Terminal",
+    description: "Diagnose terminal output & errors",
+    prompt: "Explain the current terminal output and recommend any necessary follow-up commands",
+  },
+  {
+    icon: "🧹",
+    label: "Disk Cleanup",
+    description: "Find & clean temporary caches",
+    prompt: "Show how to find and safely clean temporary cache files and logs",
+  },
+];
+
+export default function ChatBox({ sessionId, terminalOutput, cwd, onRunCommand, onOpenSettings }: ChatBoxProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -19,8 +76,46 @@ export default function ChatBox({ sessionId, terminalOutput, cwd, onRunCommand }
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [includeContext, setIncludeContext] = useState(true);
   const [collapsed, setCollapsed] = useState(false);
+  const [placeholderIndex, setPlaceholderIndex] = useState(0);
+  const [customProviders, setCustomProviders] = useState<CustomAIProvider[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const refreshProviders = useCallback(() => {
+    const list = getCustomProviders();
+    setCustomProviders(list);
+    const activeId = getActiveCustomProviderId();
+    if (activeId) {
+      const found = list.find((p) => p.id === activeId);
+      if (found) {
+        setSelectedModel(`custom:${found.id}`);
+        return;
+      }
+    }
+    const defaultModel = getSelectedDefaultModel();
+    setSelectedModel(defaultModel);
+  }, []);
+
+  useEffect(() => {
+    refreshProviders();
+    const handleStorage = () => refreshProviders();
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener("9remote-model-changed", handleStorage);
+    window.addEventListener("9remote-providers-changed", handleStorage);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("9remote-model-changed", handleStorage);
+      window.removeEventListener("9remote-providers-changed", handleStorage);
+    };
+  }, [refreshProviders]);
+
+  useEffect(() => {
+    if (input) return;
+    const interval = setInterval(() => {
+      setPlaceholderIndex((prev) => (prev + 1) % PLACEHOLDER_CYCLE.length);
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [input]);
 
   const loadHistory = useCallback(async () => {
     const { data } = await supabase
@@ -42,17 +137,33 @@ export default function ChatBox({ sessionId, terminalOutput, cwd, onRunCommand }
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
+  const activeCustomProvider = selectedModel.startsWith("custom:")
+    ? customProviders.find((p) => `custom:${p.id}` === selectedModel) || null
+    : null;
+
+  const currentModel = activeCustomProvider
+    ? {
+        id: `custom:${activeCustomProvider.id}`,
+        label: activeCustomProvider.name,
+        icon: "custom",
+        description: `${activeCustomProvider.modelId} • ${activeCustomProvider.baseUrl}`,
+      }
+    : AI_MODELS.find((m) => m.id === selectedModel) || AI_MODELS[0];
+
   const handleSend = async () => {
     const trimmed = input.trim();
     if (!trimmed || loading) return;
 
     const context = includeContext ? terminalOutput.slice(-5000) : null;
+    const modelNameToRecord = activeCustomProvider
+      ? `${activeCustomProvider.name} (${activeCustomProvider.modelId})`
+      : selectedModel;
 
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       session_id: sessionId,
       role: "user",
-      model: selectedModel,
+      model: modelNameToRecord,
       content: trimmed,
       terminal_context: context,
       created_at: new Date().toISOString(),
@@ -65,47 +176,54 @@ export default function ChatBox({ sessionId, terminalOutput, cwd, onRunCommand }
     await supabase.from("chat_messages").insert({
       session_id: sessionId,
       role: "user",
-      model: selectedModel,
+      model: modelNameToRecord,
       content: trimmed,
       terminal_context: context,
     });
 
-    await sendChatMessage(trimmed, selectedModel, context, messages, {
-      onToken: () => {},
-      onDone: async (fullText) => {
-        const aiMsg: ChatMessage = {
-          id: crypto.randomUUID(),
-          session_id: sessionId,
-          role: "assistant",
-          model: selectedModel,
-          content: fullText,
-          terminal_context: null,
-          created_at: new Date().toISOString(),
-        };
-        setMessages((prev) => [...prev, aiMsg]);
-        setLoading(false);
+    await sendChatMessage(
+      trimmed,
+      selectedModel,
+      context,
+      messages,
+      {
+        onToken: () => {},
+        onDone: async (fullText) => {
+          const aiMsg: ChatMessage = {
+            id: crypto.randomUUID(),
+            session_id: sessionId,
+            role: "assistant",
+            model: modelNameToRecord,
+            content: fullText,
+            terminal_context: null,
+            created_at: new Date().toISOString(),
+          };
+          setMessages((prev) => [...prev, aiMsg]);
+          setLoading(false);
 
-        await supabase.from("chat_messages").insert({
-          session_id: sessionId,
-          role: "assistant",
-          model: selectedModel,
-          content: fullText,
-        });
+          await supabase.from("chat_messages").insert({
+            session_id: sessionId,
+            role: "assistant",
+            model: modelNameToRecord,
+            content: fullText,
+          });
+        },
+        onError: (error) => {
+          const errMsg: ChatMessage = {
+            id: crypto.randomUUID(),
+            session_id: sessionId,
+            role: "assistant",
+            model: modelNameToRecord,
+            content: `Error: ${error}`,
+            terminal_context: null,
+            created_at: new Date().toISOString(),
+          };
+          setMessages((prev) => [...prev, errMsg]);
+          setLoading(false);
+        },
       },
-      onError: (error) => {
-        const errMsg: ChatMessage = {
-          id: crypto.randomUUID(),
-          session_id: sessionId,
-          role: "assistant",
-          model: selectedModel,
-          content: `Error: ${error}`,
-          terminal_context: null,
-          created_at: new Date().toISOString(),
-        };
-        setMessages((prev) => [...prev, errMsg]);
-        setLoading(false);
-      },
-    });
+      activeCustomProvider
+    );
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -123,8 +241,6 @@ export default function ChatBox({ sessionId, terminalOutput, cwd, onRunCommand }
       .eq("id", messageId);
   };
 
-  const currentModel = AI_MODELS.find((m) => m.id === selectedModel) || AI_MODELS[0];
-
   return (
     <div className="chat-section">
       <div className="chat-section-header" onClick={() => setCollapsed(!collapsed)}>
@@ -140,7 +256,7 @@ export default function ChatBox({ sessionId, terminalOutput, cwd, onRunCommand }
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ position: "relative" }} onClick={(e) => e.stopPropagation()}>
             <button className="model-selector" onClick={() => setShowModelDropdown(!showModelDropdown)}>
-              <Sparkles size={13} />
+              {activeCustomProvider ? <Cpu size={13} style={{ color: "var(--brand-500)" }} /> : <Sparkles size={13} />}
               {currentModel.label}
               <ChevronDown size={12} />
             </button>
@@ -152,6 +268,8 @@ export default function ChatBox({ sessionId, terminalOutput, cwd, onRunCommand }
                     className={`model-option ${model.id === selectedModel ? "active" : ""}`}
                     onClick={() => {
                       setSelectedModel(model.id);
+                      setSelectedDefaultModel(model.id);
+                      setActiveCustomProviderId(null);
                       setShowModelDropdown(false);
                     }}
                   >
@@ -164,6 +282,75 @@ export default function ChatBox({ sessionId, terminalOutput, cwd, onRunCommand }
                     </div>
                   </div>
                 ))}
+
+                {/* Custom AI Providers Section */}
+                {customProviders.length > 0 && (
+                  <>
+                    <div className="model-dropdown-divider" />
+                    <div className="model-dropdown-section-title">Custom AI Providers</div>
+                    {customProviders.map((cp) => {
+                      const isThisSelected = selectedModel === `custom:${cp.id}`;
+                      return (
+                        <div
+                          key={cp.id}
+                          className={`model-option ${isThisSelected ? "active" : ""}`}
+                          onClick={() => {
+                            setSelectedModel(`custom:${cp.id}`);
+                            setActiveCustomProviderId(cp.id);
+                            setShowModelDropdown(false);
+                          }}
+                        >
+                          <div className="model-option-icon" style={{ color: "var(--brand-500)" }}>
+                            <Cpu size={14} />
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                              <span>{cp.name}</span>
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  padding: "1px 5px",
+                                  background: "var(--surface-3)",
+                                  borderRadius: 3,
+                                  fontFamily: "monospace",
+                                }}
+                              >
+                                {cp.modelId}
+                              </span>
+                            </div>
+                            <div
+                              style={{
+                                fontSize: 10,
+                                color: "var(--text-subtle)",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {cp.baseUrl}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+
+                {onOpenSettings && (
+                  <>
+                    <div className="model-dropdown-divider" />
+                    <button
+                      className="model-dropdown-manage-btn"
+                      onClick={() => {
+                        setShowModelDropdown(false);
+                        onOpenSettings();
+                      }}
+                    >
+                      <Sliders size={12} />
+                      <span>Configure Custom Providers...</span>
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -177,14 +364,53 @@ export default function ChatBox({ sessionId, terminalOutput, cwd, onRunCommand }
             {messages.length === 0 && !loading && (
               <div className="chat-empty">
                 <div className="chat-empty-icon">
-                  <Bot size={24} />
+                  <Bot size={22} />
+                </div>
+                <div
+                  className="chat-empty-active-model"
+                  id="chat-empty-active-model"
+                  onClick={() => setShowModelDropdown((prev) => !prev)}
+                  title={`Active Model: ${
+                    activeCustomProvider
+                      ? `${activeCustomProvider.name} (${activeCustomProvider.modelId})`
+                      : currentModel.label
+                  } • Click to switch model`}
+                >
+                  <span className="chat-empty-model-indicator">▪</span>
+                  <span className="chat-empty-model-name">
+                    {activeCustomProvider
+                      ? `${activeCustomProvider.name} (${activeCustomProvider.modelId})`
+                      : currentModel.label}
+                  </span>
                 </div>
                 <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-main)" }}>
-                  AI Assistant Ready
+                  AI Terminal Assistant Ready
                 </div>
-                <div style={{ fontSize: 12, lineHeight: 1.5, maxWidth: 260 }}>
-                  Ask questions about your terminal, request commands, debug errors, or get help with your code.
-                  The AI can see your terminal output and suggest commands to run.
+                <div style={{ fontSize: 12, color: "var(--text-subtle)", maxWidth: 380, textAlign: "center" }}>
+                  Ask questions about your terminal, request commands, debug errors, or pick a suggested prompt below:
+                </div>
+
+                <div className="placeholder-prompt-grid">
+                  {SUGGESTED_PLACEHOLDERS.map((item, idx) => (
+                    <button
+                      key={idx}
+                      className="placeholder-prompt-card"
+                      onClick={() => {
+                        setInput(item.prompt);
+                        if (textareaRef.current) {
+                          textareaRef.current.focus();
+                        }
+                      }}
+                      title={`Click to fill: "${item.prompt}"`}
+                    >
+                      <span className="placeholder-prompt-icon">{item.icon}</span>
+                      <div className="placeholder-prompt-text">
+                        <span className="placeholder-prompt-title">{item.label}</span>
+                        <span className="placeholder-prompt-desc">{item.description}</span>
+                      </div>
+                      <CornerDownLeft size={12} className="placeholder-prompt-arrow" />
+                    </button>
+                  ))}
                 </div>
               </div>
             )}
@@ -241,7 +467,7 @@ export default function ChatBox({ sessionId, terminalOutput, cwd, onRunCommand }
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask AI about your terminal, request a command, debug an error..."
+                placeholder={PLACEHOLDER_CYCLE[placeholderIndex]}
                 rows={1}
                 style={{
                   height: Math.min(textareaRef.current?.scrollHeight || 32, 120),
@@ -357,7 +583,28 @@ function ModelIcon({ modelId }: { modelId: string }) {
     codex: "O",
     opencode: "O",
   };
+
+  if (modelId.startsWith("custom:") || !icons[modelId]) {
+    return (
+      <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", color: "var(--brand-500)" }}>
+        <Cpu size={14} />
+      </span>
+    );
+  }
+
   return (
-    <span style={{ fontSize: 12, fontWeight: 700 }}>{icons[modelId] || "A"}</span>
+    <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+      <img
+        src={`/agents/${modelId}.svg`}
+        alt={modelId}
+        style={{ width: 16, height: 16, borderRadius: 4 }}
+        onError={(e) => {
+          (e.currentTarget as HTMLElement).style.display = "none";
+        }}
+      />
+      <span style={{ fontSize: 12, fontWeight: 700 }} className="model-fallback-char">
+        {icons[modelId] || "A"}
+      </span>
+    </span>
   );
 }

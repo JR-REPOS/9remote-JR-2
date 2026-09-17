@@ -1,9 +1,20 @@
 import { useState, useCallback, useEffect } from "react";
-import { Plus, X, Terminal as TerminalIcon, Moon, Sun, Wifi, WifiOff } from "lucide-react";
+import { Plus, X, Terminal as TerminalIcon, Moon, Sun, Wifi, WifiOff, Play, Bot, Sparkles, Command, Settings as SettingsIcon, CheckCircle2 } from "lucide-react";
 import TerminalView from "./components/Terminal";
 import ChatBox from "./components/ChatBox";
+import SettingsModal from "./components/SettingsModal";
 import { getSocket, disconnectSocket } from "./lib/socket";
 import { TerminalSession } from "./types";
+import { getActiveModelInfo } from "./lib/providers";
+
+const QUICK_COMMAND_PLACEHOLDERS = [
+  { label: "ls -lah", desc: "List files with details" },
+  { label: "pwd", desc: "Show current path" },
+  { label: "git status", desc: "Inspect git repository" },
+  { label: "df -h", desc: "Check disk usage" },
+  { label: "uptime", desc: "Check load & uptime" },
+  { label: "clear", desc: "Clear terminal screen" },
+];
 
 export default function App() {
   const [sessions, setSessions] = useState<TerminalSession[]>([]);
@@ -14,6 +25,23 @@ export default function App() {
   );
   const [terminalOutput, setTerminalOutput] = useState<Record<string, string>>({});
   const [cwdMap, setCwdMap] = useState<Record<string, string>>({});
+  const [quickCmd, setQuickCmd] = useState("");
+  const [showSettings, setShowSettings] = useState(false);
+  const [activeModel, setActiveModel] = useState(getActiveModelInfo());
+
+  useEffect(() => {
+    const handleModelChange = () => {
+      setActiveModel(getActiveModelInfo());
+    };
+    window.addEventListener("storage", handleModelChange);
+    window.addEventListener("9remote-model-changed", handleModelChange);
+    window.addEventListener("9remote-providers-changed", handleModelChange);
+    return () => {
+      window.removeEventListener("storage", handleModelChange);
+      window.removeEventListener("9remote-model-changed", handleModelChange);
+      window.removeEventListener("9remote-providers-changed", handleModelChange);
+    };
+  }, []);
 
   const handleOutput = useCallback((output: string) => {
     setTerminalOutput((prev) => ({ ...prev, [activeSessionId || ""]: output }));
@@ -47,6 +75,8 @@ export default function App() {
     };
   }, []);
 
+  const [hasInitialized, setHasInitialized] = useState(false);
+
   const createSession = useCallback(async () => {
     const socket = getSocket();
     const sessionId = `session-${Date.now()}`;
@@ -76,6 +106,13 @@ export default function App() {
       }
     });
   }, [sessions.length]);
+
+  useEffect(() => {
+    if (connected && !hasInitialized && sessions.length === 0) {
+      setHasInitialized(true);
+      createSession();
+    }
+  }, [connected, hasInitialized, sessions.length, createSession]);
 
   const closeSession = useCallback((sessionId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -129,6 +166,9 @@ export default function App() {
           </div>
         </div>
         <div className="app-header-right">
+          <button className="icon-btn" onClick={() => setShowSettings(true)} title="AI Provider Settings">
+            <SettingsIcon size={16} />
+          </button>
           <button className="icon-btn" onClick={toggleTheme} title="Toggle theme">
             {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
           </button>
@@ -165,59 +205,179 @@ export default function App() {
           <div className="terminal-with-chat">
             <div className="terminal-section">
               {activeSession ? (
-                <TerminalView
-                  key={activeSession.id}
-                  sessionId={activeSession.id}
-                  onOutput={handleOutput}
-                  onCwdChange={handleCwdChange}
-                />
+                <>
+                  <div className="terminal-quick-bar">
+                    <div className="terminal-quick-input-wrap">
+                      <TerminalIcon size={12} className="terminal-quick-icon" />
+                      <input
+                        type="text"
+                        className="terminal-quick-input"
+                        value={quickCmd}
+                        onChange={(e) => setQuickCmd(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && quickCmd.trim()) {
+                            handleRunCommand(quickCmd.trim());
+                            setQuickCmd("");
+                          }
+                        }}
+                        placeholder="Quick command (e.g. ls -lah, git status, df -h, node -v)..."
+                      />
+                      {quickCmd.trim() && (
+                        <button
+                          className="terminal-quick-run-btn"
+                          onClick={() => {
+                            handleRunCommand(quickCmd.trim());
+                            setQuickCmd("");
+                          }}
+                        >
+                          <Play size={10} />
+                          Run
+                        </button>
+                      )}
+                    </div>
+                    <div className="terminal-quick-pills">
+                      <span className="terminal-quick-label">Placeholders:</span>
+                      {QUICK_COMMAND_PLACEHOLDERS.map((item) => (
+                        <button
+                          key={item.label}
+                          className="terminal-quick-pill"
+                          onClick={() => handleRunCommand(item.label)}
+                          title={`${item.desc} — click to execute`}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <TerminalView
+                    key={activeSession.id}
+                    sessionId={activeSession.id}
+                    onOutput={handleOutput}
+                    onCwdChange={handleCwdChange}
+                  />
+                </>
               ) : (
-                <div style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  height: "100%",
-                  flexDirection: "column",
-                  gap: 12,
-                  color: "var(--text-subtle)",
-                  background: "#000",
-                }}>
-                  <TerminalIcon size={40} style={{ opacity: 0.3 }} />
-                  <div style={{ fontSize: 14, fontWeight: 500 }}>No terminal open</div>
-                  <button
-                    onClick={() => createSession()}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      padding: "8px 16px",
-                      borderRadius: "var(--radius)",
-                      border: "none",
-                      background: "linear-gradient(135deg, var(--brand-500), var(--brand-400))",
-                      color: "white",
-                      fontSize: 13,
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      boxShadow: "0 4px 12px -4px rgba(var(--brand-rgb), 0.5)",
-                    }}
-                  >
-                    <Plus size={15} /> Open Terminal
-                  </button>
+                <div className="terminal-empty-state">
+                  <div className="terminal-mockup">
+                    <div className="terminal-mockup-header">
+                      <div className="terminal-mockup-dots">
+                        <span className="mockup-dot red" />
+                        <span className="mockup-dot yellow" />
+                        <span className="mockup-dot green" />
+                      </div>
+                      <span className="terminal-mockup-title">bash — 9remote workspace</span>
+                    </div>
+                    <div className="terminal-mockup-body">
+                      <div className="mockup-line">
+                        <span className="mockup-host">9remote@cloud</span>:<span className="mockup-path">~</span>$ <span className="mockup-cmd">status --all</span>
+                      </div>
+                      <div className="mockup-output">
+                        ✓ Interactive terminal engine ready (Socket.IO + PTY streaming)<br />
+                        ✓ AI Terminal Assistant initialized with Gemini intelligence<br />
+                        ✓ Click 'Open Terminal' or select a shortcut to begin
+                      </div>
+                      <div className="mockup-line">
+                        <span className="mockup-host">9remote@cloud</span>:<span className="mockup-path">~</span>$ <span className="mockup-cursor">█</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="terminal-empty-controls">
+                    <button className="primary-action-btn" onClick={() => createSession()}>
+                      <Plus size={15} /> Open Terminal Session
+                    </button>
+                    <div className="empty-shortcut-hints">
+                      <span><kbd>Enter</kbd> Run command</span>
+                      <span><kbd>Ctrl+C</kbd> Interrupt</span>
+                      <span><kbd>Ctrl+L</kbd> Clear</span>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
 
-            {activeSession && (
+            {activeSession ? (
               <ChatBox
                 sessionId={activeSession.id}
                 terminalOutput={activeOutput}
                 cwd={activeCwd}
                 onRunCommand={handleRunCommand}
+                onOpenSettings={() => setShowSettings(true)}
               />
+            ) : (
+              <div className="chat-section chat-section-placeholder">
+                <div
+                  className="chat-section-header selected-chat-header"
+                  onClick={() => setShowSettings(true)}
+                  title="Current Active AI Model — Click to configure AI settings"
+                >
+                  <div className="chat-section-title">
+                    <Sparkles size={14} color="var(--brand-500)" />
+                    <span>AI Terminal Assistant</span>
+                  </div>
+
+                  {/* Active AI Model Indicator */}
+                  <div className="chat-header-active-model">
+                    <div className="active-model-chip" title={`Current active model: ${activeModel.label}`}>
+                      <span className="active-model-status-dot" />
+                      <span className="active-model-badge-type">
+                        {activeModel.isCustom ? "Custom AI:" : "Active Model:"}
+                      </span>
+                      <span className="active-model-badge-name">{activeModel.label}</span>
+                      {activeModel.isCustom && activeModel.provider?.lastValidation?.ok && (
+                        <span title="Connection to custom provider verified" style={{ display: "inline-flex" }}>
+                          <CheckCircle2 size={12} className="active-model-verified-icon" />
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="chat-placeholder-content">
+                  <div className="chat-placeholder-icon-wrap">
+                    <Bot size={24} />
+                  </div>
+                  <div
+                    className="chat-empty-active-model"
+                    id="chat-placeholder-active-model"
+                    onClick={() => setShowSettings(true)}
+                    title={`Active Model: ${activeModel.label} • Click to configure`}
+                  >
+                    <span className="chat-empty-model-indicator">▪</span>
+                    <span className="chat-empty-model-name">{activeModel.label}</span>
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-main)" }}>
+                    AI Terminal Assistant Ready
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--text-subtle)", maxWidth: 320, textAlign: "center" }}>
+                    Start a terminal session to collaborate with AI models, or configure custom OpenAI/Ollama endpoints.
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+                    <button
+                      onClick={() => createSession()}
+                      className="chat-placeholder-btn"
+                    >
+                      <Plus size={13} /> Launch Session & Chat
+                    </button>
+                    <button
+                      onClick={() => setShowSettings(true)}
+                      className="chat-placeholder-btn"
+                      style={{ background: "var(--surface-3)", color: "var(--text-main)", borderColor: "var(--border)" }}
+                    >
+                      <SettingsIcon size={13} /> AI Settings
+                    </button>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
         </div>
       </div>
+
+      {/* Custom AI Provider Settings Modal */}
+      <SettingsModal
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+      />
     </div>
   );
 }
