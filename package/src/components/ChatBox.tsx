@@ -153,6 +153,9 @@ export default function ChatBox({ sessionId, terminalOutput, cwd, onRunCommand, 
         description: `${activeCustomProvider.modelId} • ${activeCustomProvider.baseUrl}`,
       }
     : AI_MODELS.find((m) => m.id === selectedModel) || AI_MODELS[0];
+  const activeModelLabel = activeCustomProvider
+    ? `${activeCustomProvider.name} (${activeCustomProvider.modelId})`
+    : currentModel.label;
 
   const handleSend = async () => {
     const trimmed = input.trim();
@@ -275,6 +278,17 @@ export default function ChatBox({ sessionId, terminalOutput, cwd, onRunCommand, 
               {messages.length} messages
             </span>
           )}
+          <div
+            className="chat-empty-active-model"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowModelDropdown((prev) => !prev);
+            }}
+            title={`Active Model: ${activeModelLabel} • Click to switch model`}
+          >
+            <span className="chat-empty-model-indicator">▪</span>
+            <span className="chat-empty-model-name">{activeModelLabel}</span>
+          </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ position: "relative" }} onClick={(e) => e.stopPropagation()}>
@@ -388,23 +402,6 @@ export default function ChatBox({ sessionId, terminalOutput, cwd, onRunCommand, 
               <div className="chat-empty">
                 <div className="chat-empty-icon">
                   <Bot size={22} />
-                </div>
-                <div
-                  className="chat-empty-active-model"
-                  id="chat-empty-active-model"
-                  onClick={() => setShowModelDropdown((prev) => !prev)}
-                  title={`Active Model: ${
-                    activeCustomProvider
-                      ? `${activeCustomProvider.name} (${activeCustomProvider.modelId})`
-                      : currentModel.label
-                  } • Click to switch model`}
-                >
-                  <span className="chat-empty-model-indicator">▪</span>
-                  <span className="chat-empty-model-name">
-                    {activeCustomProvider
-                      ? `${activeCustomProvider.name} (${activeCustomProvider.modelId})`
-                      : currentModel.label}
-                  </span>
                 </div>
                 <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-main)" }}>
                   AI Terminal Assistant Ready
